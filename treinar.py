@@ -1,5 +1,6 @@
 import sys
 import subprocess
+from datetime import datetime
 
 required = ["pandas", "numpy", "torch", "scikit-learn", "pandas_ta", "joblib"]
 for pkg in required:
@@ -39,21 +40,32 @@ class LSTMModel(nn.Module):
         return out.view(-1, output_window, 5)
 
 
+def log(msg):
+    # print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] {msg}")
+    print(msg)
+
+
 def treinar_modelo(epochs=30):
+    log("Iniciando treinamento do modelo.")
     all_data = []
+    log("Lendo arquivos de dados...")
     for file in sorted(os.listdir(data_folder)):
+        log(f"Lendo arquivo: {file}")
         df = pd.read_csv(os.path.join(data_folder, file))
         df["rsi"] = ta.rsi(df["close"], length=14)
         df.dropna(inplace=True)
         all_data.append(df)
 
+    log("Concatenando e processando dados...")
     full_df = pd.concat(all_data).reset_index(drop=True)
     scaler = MinMaxScaler()
     full_df[features] = scaler.fit_transform(full_df[features])
     os.makedirs(model_folder, exist_ok=True)
     joblib.dump(scaler, os.path.join(model_folder, "scaler.pkl"))
+    log("Scaler salvo.")
 
     X, y = [], []
+    log("Gerando janelas de dados para treinamento...")
     for i in range(len(full_df) - input_window - output_window):
         x_window = full_df[features].iloc[i : i + input_window].values
         y_window = (
@@ -64,18 +76,22 @@ def treinar_modelo(epochs=30):
         X.append(x_window)
         y.append(y_window)
 
+    log("Convertendo dados para tensores...")
     X = torch.tensor(np.array(X), dtype=torch.float32)
     y = torch.tensor(np.array(y), dtype=torch.float32)
     dataset = torch.utils.data.TensorDataset(X, y)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=True)
 
+    log("Inicializando modelo LSTM...")
     model = LSTMModel(input_size=len(features)).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
     criterion = nn.MSELoss()
 
+    log(f"Iniciando treinamento por {epochs} épocas...")
     for epoch in range(epochs):
         model.train()
         total_loss = 0
+        log(f"Iniciando época {epoch+1}/{epochs}...")
         for xb, yb in dataloader:
             xb, yb = xb.to(device), yb.to(device)
             pred = model(xb)
@@ -84,13 +100,15 @@ def treinar_modelo(epochs=30):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(f"Epoch {epoch+1}/{epochs} - Loss: {total_loss:.4f}")
+        log(f"Época {epoch+1}/{epochs} finalizada - Loss: {total_loss:.4f}")
 
     torch.save(model.state_dict(), os.path.join(model_folder, "modelo_lstm.pth"))
+    log("Modelo treinado e salvo com sucesso.")
 
 
 if __name__ == "__main__":
+    log("Script iniciado.")
     treinar_modelo(epochs=100)
-    print("Modelo treinado e salvo com sucesso.")
+    log("Processo finalizado. Aguardando...")
     while True:
         pass
