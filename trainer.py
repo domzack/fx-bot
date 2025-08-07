@@ -5,6 +5,8 @@ import torch.nn as nn
 from sklearn.preprocessing import MinMaxScaler
 from torch.utils.data import DataLoader, TensorDataset
 import joblib
+import os
+import time
 
 
 class LSTMModel(nn.Module):
@@ -41,12 +43,17 @@ class LSTMTrainer:
         self.epochs = epochs
 
     def preparar_dados(self):
+        print("[LSTMTrainer] Preparando dados para treinamento...")
         df = pd.read_csv(self.csv_path, parse_dates=["time"])
+        print(
+            f"[LSTMTrainer] Dados carregados de {self.csv_path}. Total de registros: {len(df)}"
+        )
         df = df[self.features].copy()
 
         scaler = MinMaxScaler()
         df[self.features] = scaler.fit_transform(df[self.features])
         joblib.dump(scaler, "scaler.pkl")
+        print("[LSTMTrainer] Dados normalizados e scaler salvo em scaler.pkl.")
 
         X, y = [], []
         for i in range(len(df) - self.input_window - self.output_window):
@@ -57,13 +64,16 @@ class LSTMTrainer:
             X.append(x_window)
             y.append(y_window)
 
+        print(f"[LSTMTrainer] Total de amostras para treinamento: {len(X)}")
         X = torch.tensor(np.array(X), dtype=torch.float32)
         y = torch.tensor(np.array(y), dtype=torch.float32)
         dataset = TensorDataset(X, y)
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+        print(f"[LSTMTrainer] DataLoader criado com batch_size={self.batch_size}")
         return dataloader, len(self.features)
 
     def train(self):
+        print("[LSTMTrainer] Iniciando treinamento do modelo LSTM...")
         dataloader, input_size = self.preparar_dados()
         model = LSTMModel(
             input_size=input_size,
@@ -73,6 +83,7 @@ class LSTMTrainer:
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
         criterion = nn.MSELoss()
 
+        last_epoch_time = time.time()
         for epoch in range(self.epochs):
             model.train()
             total_loss = 0
@@ -84,12 +95,19 @@ class LSTMTrainer:
                 loss.backward()
                 optimizer.step()
                 total_loss += loss.item()
-            print(f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f}")
+            now = time.time()
+            elapsed = now - last_epoch_time
+            print(
+                f"[LSTMTrainer] Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Tempo desde última época: {elapsed:.2f}s"
+            )
+            last_epoch_time = now
 
-        torch.save(model.state_dict(), "modelo_lstm_ohlcv.pth")
-        print("Modelo salvo como modelo_lstm_ohlcv.pth")
+        os.makedirs("models", exist_ok=True)
+        torch.save(model.state_dict(), "models/modelo_lstm_ohlcv.pth")
+        print("[LSTMTrainer] Modelo salvo em models/modelo_lstm_ohlcv.pth")
 
     def retrain(self):
+        print("[LSTMTrainer] Iniciando re-treinamento do modelo LSTM...")
         dataloader, input_size = self.preparar_dados()
         model = LSTMModel(
             input_size=input_size,
@@ -97,12 +115,16 @@ class LSTMTrainer:
             output_window=self.output_window,
         ).to(self.device)
         model.load_state_dict(
-            torch.load("modelo_lstm_ohlcv.pth", map_location=self.device)
+            torch.load("models/modelo_lstm_ohlcv.pth", map_location=self.device)
+        )
+        print(
+            "[LSTMTrainer] Pesos do modelo carregados de models/modelo_lstm_ohlcv.pth."
         )
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
         criterion = nn.MSELoss()
 
+        last_epoch_time = time.time()
         for epoch in range(self.epochs):
             model.train()
             total_loss = 0
@@ -114,7 +136,12 @@ class LSTMTrainer:
                 loss.backward()
                 optimizer.step()
                 total_loss += loss.item()
-            print(f"Re-treino Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f}")
+            now = time.time()
+            elapsed = now - last_epoch_time
+            print(
+                f"[LSTMTrainer] Re-treino Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Tempo desde última época: {elapsed:.2f}s"
+            )
+            last_epoch_time = now
 
-        torch.save(model.state_dict(), "modelo_lstm_ohlcv.pth")
-        print("Modelo atualizado com re-treinamento.")
+        torch.save(model.state_dict(), "models/modelo_lstm_ohlcv.pth")
+        print("[LSTMTrainer] Modelo atualizado e salvo em models/modelo_lstm_ohlcv.pth")
