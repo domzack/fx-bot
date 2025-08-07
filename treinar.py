@@ -79,4 +79,4 @@ def treinar_modelo(epochs=30):
 
 
 if __name__ == "__main__":
-    treinar_modelo(epochs=30)
+    treinar_modelo(epochs=100)
