@@ -1,3 +1,14 @@
+import sys
+import subprocess
+
+required = ["pandas", "numpy", "torch", "scikit-learn", "pandas_ta", "joblib"]
+for pkg in required:
+    try:
+        __import__(pkg if pkg != "scikit-learn" else "sklearn")
+    except ImportError:
+        print(f"Instalando {pkg}...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", pkg])
+
 import os
 import pandas as pd
 import numpy as np
