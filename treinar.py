@@ -1,6 +1,7 @@
 import sys
 import subprocess
 from datetime import datetime
+import time
 
 required = ["pandas", "numpy", "torch", "scikit-learn", "pandas_ta", "joblib"]
 for pkg in required:
@@ -89,6 +90,7 @@ def treinar_modelo(epochs=30):
 
     log(f"Iniciando treinamento por {epochs} épocas...")
     for epoch in range(epochs):
+        start_time = time.time()
         model.train()
         total_loss = 0
         log(f"Iniciando época {epoch+1}/{epochs}...")
@@ -100,7 +102,10 @@ def treinar_modelo(epochs=30):
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        log(f"Época {epoch+1}/{epochs} finalizada - Loss: {total_loss:.4f}")
+        elapsed = time.time() - start_time
+        log(
+            f"Época {epoch+1}/{epochs} finalizada - Loss: {total_loss:.4f} - Tempo: {elapsed:.2f} segundos"
+        )
 
     torch.save(model.state_dict(), os.path.join(model_folder, "modelo_lstm.pth"))
     log("Modelo treinado e salvo com sucesso.")
