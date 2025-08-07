@@ -177,8 +177,8 @@ def executar_previsao(csv_file):
 
 
 if __name__ == "__main__":
-    coletar_dados_mt5(dias=100)
+    coletar_dados_mt5(dias=600)
 
-    treinar_modelo(epochs=100)
+    # treinar_modelo(epochs=100)
 
     # executar_previsao("dados_candles/WIN$N_2023-07-29.csv")
