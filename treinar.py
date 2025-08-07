@@ -91,3 +91,6 @@ def treinar_modelo(epochs=30):
 
 if __name__ == "__main__":
     treinar_modelo(epochs=100)
+    print("Modelo treinado e salvo com sucesso.")
+    while True:
+        pass
