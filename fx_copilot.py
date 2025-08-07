@@ -177,7 +177,7 @@ def executar_previsao(csv_file):
 
 
 if __name__ == "__main__":
-    coletar_dados_mt5(dias=600)
+    coletar_dados_mt5(dias=20)
 
     # treinar_modelo(epochs=100)
 
