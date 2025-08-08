@@ -463,8 +463,9 @@ class LSTMTrainer:
                 fim_epoca = time.time()
                 tempo_epoca = fim_epoca - inicio_epoca
                 epoch_times.append(tempo_epoca)
-                tempo_medio = np.mean(epoch_times)
-                tempo_estimado = tempo_medio * (self.epochs - (epoch + 1))
+                # Estimativa restante: tempo da última época * epocas restantes
+                epocas_restantes = self.epochs - (epoch + 1)
+                tempo_estimado = tempo_epoca * epocas_restantes
                 log(
                     f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
                 )
