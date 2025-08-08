@@ -341,7 +341,8 @@ class LSTMTrainer:
 
     def train_all_history_csvs_scheduled(self):
         """
-        Treina todos os arquivos CSV da pasta ./history de forma incremental, seguindo regras de horário e uso de recursos.
+        Lê o arquivo ./dados_candles/historico.csv, treina em blocos de 1000 a 2000 candles não treinados,
+        marca os registros treinados na coluna [treinado], salva o modelo e emite logs.
         """
 
         def log(msg):
@@ -350,76 +351,58 @@ class LSTMTrainer:
                 f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] CPUs: {n_threads} | {msg}"
             )
 
-        history_folder = "./history"
-        csv_files = sorted(
-            glob.glob(os.path.join(history_folder, "US500-M1-*.csv")), key=lambda x: x
-        )
+        csv_path = "./dados_candles/US500_M1.csv"
+        artifacts_folder = self.artifacts_folder
+        model_path = os.path.join(artifacts_folder, "modelo_lstm_ohlcv.pth")
+        scaler_path = os.path.join(artifacts_folder, "scaler.pkl")
 
-        if not csv_files:
-            log("Nenhum arquivo CSV encontrado em ./history.")
+        # Garante que a coluna 'treinado' existe
+        if not os.path.exists(csv_path):
+            log(f"Arquivo {csv_path} não encontrado.")
             return
 
-        log(f"Encontrados {len(csv_files)} arquivos CSV para treinamento.")
+        # Carrega todo o histórico
+        df = pd.read_csv(csv_path)
+        if "treinado" not in df.columns:
+            df["treinado"] = 0
 
-        # Verifica se é domingo
-        now = datetime.now()
-        is_sunday = now.weekday() == 6
+        # Treina enquanto houver blocos não treinados
+        while True:
+            # Seleciona bloco de 1000 a 2000 candles não treinados
+            bloco = df[df["treinado"] == 0].head(2000)
+            if len(bloco) < self.input_window + self.output_window:
+                log(
+                    "Não há candles suficientes não treinados para formar um bloco. Fim do treinamento."
+                )
+                break
 
-        # Função para verificar se está dentro do horário permitido
-        def pode_treinar():
-            now = datetime.now()
-            if is_sunday:
-                return True
-            hora = now.hour + now.minute / 60.0
-            return hora >= 22 or hora < 7.5
+            log(
+                f"Iniciando treinamento de bloco com {len(bloco)} candles não treinados."
+            )
 
-        # Função para limitar uso de CPU (apenas reduz threads do pytorch)
-        def limitar_recursos():
-            torch.set_num_threads(1)
-            log("Recursos limitados: set_num_threads(1)")
-
-        def liberar_recursos():
-            n_threads = max(1, os.cpu_count() - 1)
-            torch.set_num_threads(n_threads)
-            log(f"Recursos liberados: set_num_threads({n_threads})")
-
-        model_path = os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth")
-        scaler_path = os.path.join(self.artifacts_folder, "scaler.pkl")
-
-        for csv_file in csv_files:
-            log(f"Iniciando treinamento do arquivo: {csv_file}")
-
-            # Ajusta recursos conforme horário
-            if pode_treinar():
-                liberar_recursos()
-            else:
-                limitar_recursos()
-
-            # Carrega dados
-            df = pd.read_csv(csv_file, header=None)
-            df.columns = self.features
+            # Prepara dados do bloco
+            bloco_features = bloco[self.features].copy()
             scaler = MinMaxScaler()
-            df[self.features] = scaler.fit_transform(df[self.features])
+            bloco_features[self.features] = scaler.fit_transform(
+                bloco_features[self.features]
+            )
             joblib.dump(scaler, scaler_path)
             log(f"Scaler salvo em {scaler_path}.")
 
             X, y = [], []
-            for i in range(len(df) - self.input_window - self.output_window):
-                x_window = df.iloc[i : i + self.input_window].values
-                y_window = df.iloc[
+            for i in range(
+                len(bloco_features) - self.input_window - self.output_window
+            ):
+                x_window = bloco_features.iloc[i : i + self.input_window].values
+                y_window = bloco_features.iloc[
                     i + self.input_window : i + self.input_window + self.output_window
                 ].values
                 X.append(x_window)
                 y.append(y_window)
 
             if len(X) == 0:
-                log(
-                    "Nenhuma amostra suficiente para treinamento neste arquivo. Pulando."
-                )
-                # Renomeia para indicar que foi processado, mesmo sem treinar
-                novo_nome = csv_file + ".x"
-                shutil.move(csv_file, novo_nome)
-                log(f"Arquivo renomeado para {novo_nome}")
+                log("Nenhuma amostra suficiente para treinamento neste bloco. Pulando.")
+                # Não marca como treinado, apenas ignora e aguarda mais dados
                 continue
 
             X = torch.tensor(np.array(X), dtype=torch.float32)
@@ -447,7 +430,6 @@ class LSTMTrainer:
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
             criterion = nn.MSELoss()
 
-            epoch_times = []
             for epoch in range(self.epochs):
                 inicio_epoca = time.time()
                 model.train()
@@ -462,16 +444,17 @@ class LSTMTrainer:
                     total_loss += loss.item()
                 fim_epoca = time.time()
                 tempo_epoca = fim_epoca - inicio_epoca
-                epoch_times.append(tempo_epoca)
-                # Estimativa restante: tempo da última época * epocas restantes
                 epocas_restantes = self.epochs - (epoch + 1)
                 tempo_estimado = tempo_epoca * epocas_restantes
                 log(
                     f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
                 )
 
-                # Após cada época, verifica se está em horário restrito e ajusta recursos dinamicamente
-                if not pode_treinar():
+                # Ajusta recursos conforme horário
+                now = datetime.now()
+                is_sunday = now.weekday() == 6
+                hora = now.hour + now.minute / 60.0
+                if not (is_sunday or hora >= 22 or hora < 7.5):
                     torch.set_num_threads(1)
                     log(
                         "Restrição de recursos aplicada após época (set_num_threads(1))."
@@ -486,12 +469,15 @@ class LSTMTrainer:
             torch.save(model.state_dict(), model_path)
             log(f"Modelo salvo em {model_path}")
 
-            # Renomeia arquivo para indicar que foi treinado
-            novo_nome = csv_file + ".x"
-            shutil.move(csv_file, novo_nome)
-            log(f"Arquivo renomeado para {novo_nome}")
+            # Marca como treinado apenas após sucesso do treinamento
+            idxs = bloco.index
+            df.loc[idxs, "treinado"] = 1
+            df.to_csv(csv_path, index=False)
+            log(
+                f"Bloco de {len(idxs)} candles marcado como treinado e salvo em {csv_path}"
+            )
 
             # Executa git pop após o sucesso do treinamento
-            os.system(f"git pop '{novo_nome} train success'")
+            os.system(f"git pop 'bloco_{idxs[0]}_{idxs[-1]} train success'")
 
-        log("Treinamento de todos arquivos CSV concluído.")
+        log("Treinamento de todos os blocos concluído.")
