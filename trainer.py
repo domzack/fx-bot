@@ -73,9 +73,19 @@ class LSTMTrainer:
             y.append(y_window)
 
         print(f"[LSTMTrainer] Total de amostras para treinamento: {len(X)}")
-        X = torch.tensor(np.array(X), dtype=torch.float32)
-        print(f"[LSTMTrainer] Total de amostras de saída: {len(y)}")
-        y = torch.tensor(np.array(y), dtype=torch.float32)
+        try:
+            print("[LSTMTrainer] Convertendo X para tensor...")
+            X = torch.tensor(np.array(X), dtype=torch.float32)
+            print("[LSTMTrainer] X convertido para tensor.")
+            print("[LSTMTrainer] Convertendo y para tensor...")
+            y = torch.tensor(np.array(y), dtype=torch.float32)
+            print("[LSTMTrainer] y convertido para tensor.")
+        except Exception as e:
+            print(f"[LSTMTrainer] Erro ao converter para tensor: {e}")
+            import traceback
+
+            print(traceback.format_exc())
+            raise
         print("[LSTMTrainer] Dados convertidos para tensores PyTorch.")
         dataset = TensorDataset(X, y)
         print("[LSTMTrainer] Dataset criado com tensores de entrada e saída.")
