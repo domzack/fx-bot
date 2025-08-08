@@ -1,3 +1,6 @@
+# Este arquivo é compatível com python3.
+# Para rodar: python3 trainer.py
+
 import pandas as pd
 import numpy as np
 import torch
@@ -33,6 +36,7 @@ class LSTMTrainer:
         output_window=100,
         batch_size=64,
         epochs=100,
+        artifacts_folder="models",
     ):
         self.csv_path = csv_path
         self.device = device
@@ -41,6 +45,7 @@ class LSTMTrainer:
         self.output_window = output_window
         self.batch_size = batch_size
         self.epochs = epochs
+        self.artifacts_folder = artifacts_folder
 
     def preparar_dados(self):
         print("[LSTMTrainer] Preparando dados para treinamento...")
@@ -52,8 +57,11 @@ class LSTMTrainer:
 
         scaler = MinMaxScaler()
         df[self.features] = scaler.fit_transform(df[self.features])
-        joblib.dump(scaler, "scaler.pkl")
-        print("[LSTMTrainer] Dados normalizados e scaler salvo em scaler.pkl.")
+        os.makedirs(self.artifacts_folder, exist_ok=True)
+        joblib.dump(scaler, os.path.join(self.artifacts_folder, "scaler.pkl"))
+        print(
+            f"[LSTMTrainer] Dados normalizados e scaler salvo em {self.artifacts_folder}/scaler.pkl."
+        )
 
         X, y = [], []
         for i in range(len(df) - self.input_window - self.output_window):
@@ -109,9 +117,14 @@ class LSTMTrainer:
             )
             last_epoch_time = now
 
-        os.makedirs("models", exist_ok=True)
-        torch.save(model.state_dict(), "models/modelo_lstm_ohlcv.pth")
-        print("[LSTMTrainer] Modelo salvo em models/modelo_lstm_ohlcv.pth")
+        os.makedirs(self.artifacts_folder, exist_ok=True)
+        torch.save(
+            model.state_dict(),
+            os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth"),
+        )
+        print(
+            f"[LSTMTrainer] Modelo salvo em {self.artifacts_folder}/modelo_lstm_ohlcv.pth"
+        )
 
     def retrain(self):
         print("[LSTMTrainer] Iniciando re-treinamento do modelo LSTM...")
@@ -122,10 +135,13 @@ class LSTMTrainer:
             output_window=self.output_window,
         ).to(self.device)
         model.load_state_dict(
-            torch.load("models/modelo_lstm_ohlcv.pth", map_location=self.device)
+            torch.load(
+                os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth"),
+                map_location=self.device,
+            )
         )
         print(
-            "[LSTMTrainer] Pesos do modelo carregados de models/modelo_lstm_ohlcv.pth."
+            f"[LSTMTrainer] Pesos do modelo carregados de {self.artifacts_folder}/modelo_lstm_ohlcv.pth."
         )
 
         optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
@@ -150,5 +166,10 @@ class LSTMTrainer:
             )
             last_epoch_time = now
 
-        torch.save(model.state_dict(), "models/modelo_lstm_ohlcv.pth")
-        print("[LSTMTrainer] Modelo atualizado e salvo em models/modelo_lstm_ohlcv.pth")
+        torch.save(
+            model.state_dict(),
+            os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth"),
+        )
+        print(
+            f"[LSTMTrainer] Modelo atualizado e salvo em {self.artifacts_folder}/modelo_lstm_ohlcv.pth"
+        )
