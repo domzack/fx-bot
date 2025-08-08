@@ -195,3 +195,143 @@ class LSTMTrainer:
         print(
             f"[LSTMTrainer] Modelo atualizado e salvo em {self.artifacts_folder}/modelo_lstm_ohlcv.pth"
         )
+
+    def train_incremental(self, csv_parts):
+        """
+        Treina o modelo incrementalmente, processando cada parte dos dados separadamente.
+        csv_parts: lista de caminhos para arquivos CSV menores.
+        """
+        print("[LSTMTrainer] Iniciando treinamento incremental...")
+        model_path = os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth")
+        for idx, csv_part in enumerate(csv_parts):
+            print(f"[LSTMTrainer] Treinando parte {idx+1}/{len(csv_parts)}: {csv_part}")
+            self.csv_path = csv_part
+            dataloader, input_size = self.preparar_dados()
+            if os.path.exists(model_path):
+                model = LSTMModel(
+                    input_size=input_size,
+                    output_size=len(self.features),
+                    output_window=self.output_window,
+                ).to(self.device)
+                model.load_state_dict(torch.load(model_path, map_location=self.device))
+                print("[LSTMTrainer] Modelo carregado do treinamento anterior.")
+            else:
+                model = LSTMModel(
+                    input_size=input_size,
+                    output_size=len(self.features),
+                    output_window=self.output_window,
+                ).to(self.device)
+                print("[LSTMTrainer] Novo modelo criado.")
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            criterion = nn.MSELoss()
+
+            for epoch in range(self.epochs):
+                model.train()
+                total_loss = 0
+                for xb, yb in dataloader:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
+                    pred = model(xb)
+                    loss = criterion(pred, yb)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    total_loss += loss.item()
+                print(
+                    f"[LSTMTrainer] Parte {idx+1} Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f}"
+                )
+
+            torch.save(model.state_dict(), model_path)
+            print(f"[LSTMTrainer] Modelo salvo após parte {idx+1} em {model_path}")
+
+        print("[LSTMTrainer] Treinamento incremental concluído.")
+
+    def train_csv_in_chunks(self):
+        """
+        Carrega o CSV em grupos de 10 mil linhas e executa o treinamento sucessivamente em cada grupo.
+        O modelo é atualizado a cada grupo e salvo ao final de cada chunk.
+        """
+        print("[LSTMTrainer] Iniciando treinamento em chunks de 10 mil linhas...")
+        chunk_size = 10000
+        model_path = os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth")
+        scaler_path = os.path.join(self.artifacts_folder, "scaler.pkl")
+        chunk_iter = pd.read_csv(
+            self.csv_path, parse_dates=["time"], chunksize=chunk_size
+        )
+        chunk_count = 0
+
+        for chunk in chunk_iter:
+            chunk_count += 1
+            print(f"[LSTMTrainer] Processando chunk {chunk_count}...")
+            df = chunk[self.features].copy()
+
+            scaler = MinMaxScaler()
+            df[self.features] = scaler.fit_transform(df[self.features])
+            joblib.dump(scaler, scaler_path)
+            print(f"[LSTMTrainer] Dados normalizados e scaler salvo em {scaler_path}.")
+
+            X, y = [], []
+            for i in range(len(df) - self.input_window - self.output_window):
+                x_window = df.iloc[i : i + self.input_window].values
+                y_window = df.iloc[
+                    i + self.input_window : i + self.input_window + self.output_window
+                ].values
+                X.append(x_window)
+                y.append(y_window)
+
+            print(
+                f"[LSTMTrainer] Chunk {chunk_count}: Total de amostras para treinamento: {len(X)}"
+            )
+            if len(X) == 0:
+                print(
+                    f"[LSTMTrainer] Chunk {chunk_count}: Nenhuma amostra suficiente para treinamento, pulando chunk."
+                )
+                continue
+
+            X = torch.tensor(np.array(X), dtype=torch.float32)
+            y = torch.tensor(np.array(y), dtype=torch.float32)
+            dataset = TensorDataset(X, y)
+            dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
+            if os.path.exists(model_path):
+                model = LSTMModel(
+                    input_size=len(self.features),
+                    output_size=len(self.features),
+                    output_window=self.output_window,
+                ).to(self.device)
+                model.load_state_dict(torch.load(model_path, map_location=self.device))
+                print(
+                    f"[LSTMTrainer] Chunk {chunk_count}: Modelo carregado do treinamento anterior."
+                )
+            else:
+                model = LSTMModel(
+                    input_size=len(self.features),
+                    output_size=len(self.features),
+                    output_window=self.output_window,
+                ).to(self.device)
+                print(f"[LSTMTrainer] Chunk {chunk_count}: Novo modelo criado.")
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            criterion = nn.MSELoss()
+
+            for epoch in range(self.epochs):
+                model.train()
+                total_loss = 0
+                for xb, yb in dataloader:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
+                    pred = model(xb)
+                    loss = criterion(pred, yb)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    total_loss += loss.item()
+                print(
+                    f"[LSTMTrainer] Chunk {chunk_count} Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f}"
+                )
+
+            torch.save(model.state_dict(), model_path)
+            print(
+                f"[LSTMTrainer] Modelo salvo após chunk {chunk_count} em {model_path}"
+            )
+
+        print("[LSTMTrainer] Treinamento em chunks concluído.")

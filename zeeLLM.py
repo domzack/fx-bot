@@ -9,9 +9,7 @@ if __name__ == "__main__":
         features = ["open", "high", "low", "close", "volume"]
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        csv_path = (
-            "history/US500_all.csv"  # Caminho para o arquivo CSV com os dados OHLCV
-        )
+        csv_path = "history/US500_all.csv"
         artifacts_folder = "training_artifacts"
         os.makedirs(artifacts_folder, exist_ok=True)
 
@@ -23,7 +21,7 @@ if __name__ == "__main__":
             artifacts_folder=artifacts_folder,  # novo parâmetro
         )
         print("[zeeLLM] Chamando trainer.train()...")
-        trainer.train()  # Executa o treinamento
+        trainer.train_csv_in_chunks()
         print("[zeeLLM] Treinamento finalizado, executando git pop 'model'...")
 
         # Executa o comando git pop 'model' após o treinamento
