@@ -66,8 +66,11 @@ class LSTMTrainer:
 
         print(f"[LSTMTrainer] Total de amostras para treinamento: {len(X)}")
         X = torch.tensor(np.array(X), dtype=torch.float32)
+        print(f"[LSTMTrainer] Total de amostras de saída: {len(y)}")
         y = torch.tensor(np.array(y), dtype=torch.float32)
+        print("[LSTMTrainer] Dados convertidos para tensores PyTorch.")
         dataset = TensorDataset(X, y)
+        print("[LSTMTrainer] Dataset criado com tensores de entrada e saída.")
         dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
         print(f"[LSTMTrainer] DataLoader criado com batch_size={self.batch_size}")
         return dataloader, len(self.features)
@@ -75,15 +78,19 @@ class LSTMTrainer:
     def train(self):
         print("[LSTMTrainer] Iniciando treinamento do modelo LSTM...")
         dataloader, input_size = self.preparar_dados()
+        print(f"[LSTMTrainer] Tamanho da entrada do modelo: {input_size}")
         model = LSTMModel(
             input_size=input_size,
             output_size=len(self.features),
             output_window=self.output_window,
         ).to(self.device)
+        print("[LSTMTrainer] Modelo LSTM criado e movido para o dispositivo.")
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+        print("[LSTMTrainer] Otimizador Adam criado com taxa de aprendizado 0.001.")
         criterion = nn.MSELoss()
-
+        print("[LSTMTrainer] Função de perda MSELoss definida.")
         last_epoch_time = time.time()
+        print("[LSTMTrainer] Iniciando o loop de treinamento...")
         for epoch in range(self.epochs):
             model.train()
             total_loss = 0
