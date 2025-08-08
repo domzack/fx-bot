@@ -11,6 +11,9 @@ import joblib
 import os
 import time
 import psutil
+import glob
+from datetime import datetime, timedelta
+import shutil
 
 
 class LSTMModel(nn.Module):
@@ -335,3 +338,156 @@ class LSTMTrainer:
             )
 
         print("[LSTMTrainer] Treinamento em chunks concluído.")
+
+    def train_all_history_csvs_scheduled(self):
+        """
+        Treina todos os arquivos CSV da pasta ./history de forma incremental, seguindo regras de horário e uso de recursos.
+        """
+
+        def log(msg):
+            n_threads = torch.get_num_threads()
+            print(
+                f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] CPUs: {n_threads} | {msg}"
+            )
+
+        history_folder = "./history"
+        csv_files = sorted(
+            glob.glob(os.path.join(history_folder, "US500-M1-*.csv")), key=lambda x: x
+        )
+
+        if not csv_files:
+            log("Nenhum arquivo CSV encontrado em ./history.")
+            return
+
+        log(f"Encontrados {len(csv_files)} arquivos CSV para treinamento.")
+
+        # Verifica se é domingo
+        now = datetime.now()
+        is_sunday = now.weekday() == 6
+
+        # Função para verificar se está dentro do horário permitido
+        def pode_treinar():
+            now = datetime.now()
+            if is_sunday:
+                return True
+            hora = now.hour + now.minute / 60.0
+            return hora >= 22 or hora < 7.5
+
+        # Função para limitar uso de CPU (apenas reduz threads do pytorch)
+        def limitar_recursos():
+            torch.set_num_threads(1)
+            log("Recursos limitados: set_num_threads(1)")
+
+        def liberar_recursos():
+            n_threads = max(1, os.cpu_count() - 1)
+            torch.set_num_threads(n_threads)
+            log(f"Recursos liberados: set_num_threads({n_threads})")
+
+        model_path = os.path.join(self.artifacts_folder, "modelo_lstm_ohlcv.pth")
+        scaler_path = os.path.join(self.artifacts_folder, "scaler.pkl")
+
+        for csv_file in csv_files:
+            log(f"Iniciando treinamento do arquivo: {csv_file}")
+
+            # Ajusta recursos conforme horário
+            if pode_treinar():
+                liberar_recursos()
+            else:
+                limitar_recursos()
+
+            # Carrega dados
+            df = pd.read_csv(csv_file, header=None)
+            df.columns = self.features
+            scaler = MinMaxScaler()
+            df[self.features] = scaler.fit_transform(df[self.features])
+            joblib.dump(scaler, scaler_path)
+            log(f"Scaler salvo em {scaler_path}.")
+
+            X, y = [], []
+            for i in range(len(df) - self.input_window - self.output_window):
+                x_window = df.iloc[i : i + self.input_window].values
+                y_window = df.iloc[
+                    i + self.input_window : i + self.input_window + self.output_window
+                ].values
+                X.append(x_window)
+                y.append(y_window)
+
+            if len(X) == 0:
+                log(
+                    "Nenhuma amostra suficiente para treinamento neste arquivo. Pulando."
+                )
+                # Renomeia para indicar que foi processado, mesmo sem treinar
+                novo_nome = csv_file + ".x"
+                shutil.move(csv_file, novo_nome)
+                log(f"Arquivo renomeado para {novo_nome}")
+                continue
+
+            X = torch.tensor(np.array(X), dtype=torch.float32)
+            y = torch.tensor(np.array(y), dtype=torch.float32)
+            dataset = TensorDataset(X, y)
+            dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+
+            # Carrega ou cria modelo
+            if os.path.exists(model_path):
+                model = LSTMModel(
+                    input_size=len(self.features),
+                    output_size=len(self.features),
+                    output_window=self.output_window,
+                ).to(self.device)
+                model.load_state_dict(torch.load(model_path, map_location=self.device))
+                log("Modelo carregado do treinamento anterior.")
+            else:
+                model = LSTMModel(
+                    input_size=len(self.features),
+                    output_size=len(self.features),
+                    output_window=self.output_window,
+                ).to(self.device)
+                log("Novo modelo criado.")
+
+            optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+            criterion = nn.MSELoss()
+
+            epoch_times = []
+            for epoch in range(self.epochs):
+                inicio_epoca = time.time()
+                model.train()
+                total_loss = 0
+                for xb, yb in dataloader:
+                    xb, yb = xb.to(self.device), yb.to(self.device)
+                    pred = model(xb)
+                    loss = criterion(pred, yb)
+                    optimizer.zero_grad()
+                    loss.backward()
+                    optimizer.step()
+                    total_loss += loss.item()
+                fim_epoca = time.time()
+                tempo_epoca = fim_epoca - inicio_epoca
+                epoch_times.append(tempo_epoca)
+                tempo_medio = np.mean(epoch_times)
+                tempo_estimado = tempo_medio * (self.epochs - (epoch + 1))
+                log(
+                    f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
+                )
+
+                # Após cada época, verifica se está em horário restrito e ajusta recursos dinamicamente
+                if not pode_treinar():
+                    torch.set_num_threads(1)
+                    log(
+                        "Restrição de recursos aplicada após época (set_num_threads(1))."
+                    )
+                else:
+                    n_threads = max(1, os.cpu_count() - 1)
+                    torch.set_num_threads(n_threads)
+                    log(
+                        f"Recursos liberados após época (set_num_threads({n_threads}))."
+                    )
+
+            torch.save(model.state_dict(), model_path)
+            log(f"Modelo salvo em {model_path}")
+
+            # Renomeia arquivo para indicar que foi treinado
+            novo_nome = csv_file + ".x"
+            shutil.move(csv_file, novo_nome)
+            log(f"Arquivo renomeado para {novo_nome}")
+
+        log("Treinamento de todos arquivos CSV concluído.")
