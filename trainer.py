@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader, TensorDataset
 import joblib
 import os
 import time
+import psutil
 
 
 class LSTMModel(nn.Module):
@@ -74,12 +75,23 @@ class LSTMTrainer:
 
         print(f"[LSTMTrainer] Total de amostras para treinamento: {len(X)}")
         try:
+            process = psutil.Process(os.getpid())
+            mem_before = process.memory_info().rss / (1024 * 1024)
+            print(
+                f"[LSTMTrainer] Memória antes de converter para tensor: {mem_before:.2f} MB"
+            )
             print("[LSTMTrainer] Convertendo X para tensor...")
             X = torch.tensor(np.array(X), dtype=torch.float32)
-            print("[LSTMTrainer] X convertido para tensor.")
+            mem_after_X = process.memory_info().rss / (1024 * 1024)
+            print(
+                f"[LSTMTrainer] X convertido para tensor. Memória atual: {mem_after_X:.2f} MB"
+            )
             print("[LSTMTrainer] Convertendo y para tensor...")
             y = torch.tensor(np.array(y), dtype=torch.float32)
-            print("[LSTMTrainer] y convertido para tensor.")
+            mem_after_y = process.memory_info().rss / (1024 * 1024)
+            print(
+                f"[LSTMTrainer] y convertido para tensor. Memória atual: {mem_after_y:.2f} MB"
+            )
         except Exception as e:
             print(f"[LSTMTrainer] Erro ao converter para tensor: {e}")
             import traceback
