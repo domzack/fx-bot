@@ -490,4 +490,7 @@ class LSTMTrainer:
             shutil.move(csv_file, novo_nome)
             log(f"Arquivo renomeado para {novo_nome}")
 
+            # Executa git pop após o sucesso do treinamento
+            os.system(f"git pop '{novo_nome} train success'")
+
         log("Treinamento de todos arquivos CSV concluído.")

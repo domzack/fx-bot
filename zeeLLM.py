@@ -20,8 +20,8 @@ if __name__ == "__main__":
             features=features,
             artifacts_folder=artifacts_folder,  # novo parâmetro
         )
-        print("[zeeLLM] Chamando trainer.train()...")
-        trainer.train_csv_in_chunks()
+        print("[zeeLLM] Chamando trainer.train_all_history_csvs_scheduled()...")
+        trainer.train_all_history_csvs_scheduled()
         print("[zeeLLM] Treinamento finalizado, executando git pop 'model'...")
 
         # Executa o comando git pop 'model' após o treinamento
