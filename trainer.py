@@ -60,7 +60,7 @@ class LSTMTrainer:
         epochs=10,
         artifacts_folder="models",
         hidden_size=256,  # alterado para 256*4 = 1024
-        num_layers=5,  # alterado para 5
+        num_layers=1,  # alterado para 5
     ):
         self.csv_path = csv_path
         self.device = device
