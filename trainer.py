@@ -107,7 +107,7 @@ class LSTMTrainer:
         # Treina enquanto houver blocos não treinados
         while True:
             # Seleciona bloco de 1000 a 2000 candles não treinados
-            bloco = df[df["treinado"] == 0].head(2000)
+            bloco = df[df["treinado"] == 0].head(10000)
             if len(bloco) < self.input_window + self.output_window:
                 log(
                     "Não há dados suficientes para formar um bloco. Fim do treinamento."
@@ -176,9 +176,8 @@ class LSTMTrainer:
                     )
                     log("Modelo carregado do treinamento anterior.")
                 except Exception as e:
-                    log(
-                        f"Falha ao carregar modelo antigo: {e}. Criando novo modelo do zero."
-                    )
+                    log(f"Falha ao carregar modelo antigo: {e}.")
+                    log("Criando novo modelo do zero")
             else:
                 log("Novo modelo criado.")
 
@@ -186,6 +185,7 @@ class LSTMTrainer:
             criterion = nn.MSELoss()
 
             n_threads = max(1, os.cpu_count() - 3)
+            torch.set_num_threads(n_threads)
 
             for epoch in range(self.epochs):
 
