@@ -138,6 +138,8 @@ class LSTMTrainer:
             joblib.dump(normalizer, scaler_path)
             log(f"Normalizer salvo em {scaler_path}.")
 
+            # Split treino/validação (80/20)
+            split_idx = int(len(bloco_features) * 0.8)
             X, y = [], []
             for i in range(
                 len(bloco_features) - self.input_window - self.output_window
@@ -151,13 +153,31 @@ class LSTMTrainer:
 
             if len(X) == 0:
                 log("Nenhuma amostra suficiente para treinamento neste bloco. Pulando.")
-                # Não marca como treinado, apenas ignora e aguarda mais dados
                 continue
 
-            X = torch.tensor(np.array(X), dtype=torch.float32)
-            y = torch.tensor(np.array(y), dtype=torch.float32)
-            dataset = TensorDataset(X, y)
-            dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+            X = np.array(X)
+            y = np.array(y)
+            X_train, X_val = X[:split_idx], X[split_idx:]
+            y_train, y_val = y[:split_idx], y[split_idx:]
+
+            # Permite batch size diferente para validação
+            batch_size_train = self.batch_size
+            batch_size_val = min(256, len(X_val)) if len(X_val) > 0 else self.batch_size
+
+            train_dataset = TensorDataset(
+                torch.tensor(X_train, dtype=torch.float32),
+                torch.tensor(y_train, dtype=torch.float32),
+            )
+            val_dataset = TensorDataset(
+                torch.tensor(X_val, dtype=torch.float32),
+                torch.tensor(y_val, dtype=torch.float32),
+            )
+            train_loader = DataLoader(
+                train_dataset, batch_size=batch_size_train, shuffle=True
+            )
+            val_loader = DataLoader(
+                val_dataset, batch_size=batch_size_val, shuffle=False
+            )
 
             # Carrega ou cria modelo
             model = LSTMModel(
@@ -186,6 +206,7 @@ class LSTMTrainer:
 
             n_threads = max(1, os.cpu_count() - 3)
             torch.set_num_threads(n_threads)
+            limit_threads = 2
 
             for epoch in range(self.epochs):
 
@@ -194,20 +215,21 @@ class LSTMTrainer:
                 is_sunday = now.weekday() == 6
                 hora = now.hour + now.minute / 60.0
                 if not (is_sunday or hora >= 22 or hora < 7.5):
-                    if n_threads > 1:
-                        n_threads = 1
+                    if n_threads > limit_threads:
+                        n_threads = limit_threads
                         torch.set_num_threads(n_threads)
                         log("Restringindo recursos.")
                 else:
-                    if n_threads == 1:
+                    if n_threads == limit_threads:
                         n_threads = max(1, os.cpu_count() - 3)
-                        torch.set_num_threads(n_threads)
-                        log(f"Recursos liberados.")
+                        if n_threads > limit_threads:
+                            torch.set_num_threads(n_threads)
+                            log(f"Recursos liberados.")
 
                 inicio_epoca = time.time()
                 model.train()
                 total_loss = 0
-                for xb, yb in dataloader:
+                for xb, yb in train_loader:
                     xb, yb = xb.to(self.device), yb.to(self.device)
                     batch_size = xb.size(0)
                     input_seq = xb  # [batch_size, input_window, features]
@@ -237,12 +259,36 @@ class LSTMTrainer:
                     loss.backward()
                     optimizer.step()
                     total_loss += loss.item()
+
+                # Validação
+                model.eval()
+                val_loss = 0
+                with torch.no_grad():
+                    for xb, yb in val_loader:
+                        xb, yb = xb.to(self.device), yb.to(self.device)
+                        batch_size = xb.size(0)
+                        input_seq = xb
+                        target_seq = yb
+                        hidden = None
+                        decoder_input = input_seq[:, -1, :].unsqueeze(1)
+                        outputs = torch.zeros(
+                            batch_size,
+                            self.output_window,
+                            input_seq.size(2),
+                            device=self.device,
+                        )
+                        for t in range(self.output_window):
+                            out, hidden = model.forward_step(decoder_input, hidden)
+                            outputs[:, t, :] = out[:, 0, :]
+                            decoder_input = target_seq[:, t, :].unsqueeze(1)
+                        loss = criterion(outputs, target_seq)
+                        val_loss += loss.item()
                 fim_epoca = time.time()
                 tempo_epoca = fim_epoca - inicio_epoca
                 epocas_restantes = self.epochs - (epoch + 1)
                 tempo_estimado = tempo_epoca * epocas_restantes
                 log(
-                    f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
+                    f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Val Loss: {val_loss:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
                 )
 
             torch.save(model.state_dict(), model_path)
