@@ -147,26 +147,26 @@ class LSTMTrainer:
             dataloader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
             # Carrega ou cria modelo
+            model = LSTMModel(
+                input_size=4,
+                output_size=4,
+                output_window=self.output_window,
+                hidden_size=self.hidden_size,
+                num_layers=self.num_layers,
+            ).to(self.device)
             if os.path.exists(model_path):
-                model = LSTMModel(
-                    input_size=4,
-                    output_size=4,
-                    output_window=self.output_window,
-                    hidden_size=self.hidden_size,
-                    num_layers=self.num_layers,
-                ).to(self.device)
-                model.load_state_dict(
-                    torch.load(model_path, map_location=self.device, weights_only=True)
-                )
-                log("Modelo carregado do treinamento anterior.")
+                try:
+                    model.load_state_dict(
+                        torch.load(
+                            model_path, map_location=self.device, weights_only=True
+                        )
+                    )
+                    log("Modelo carregado do treinamento anterior.")
+                except Exception as e:
+                    log(
+                        f"Falha ao carregar modelo antigo: {e}. Criando novo modelo do zero."
+                    )
             else:
-                model = LSTMModel(
-                    input_size=4,
-                    output_size=4,
-                    output_window=self.output_window,
-                    hidden_size=self.hidden_size,
-                    num_layers=self.num_layers,
-                ).to(self.device)
                 log("Novo modelo criado.")
 
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
