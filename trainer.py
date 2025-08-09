@@ -59,7 +59,7 @@ class LSTMTrainer:
         batch_size=64,  # batch maior
         epochs=10,
         artifacts_folder="models",
-        hidden_size=1024,  # alterado para 256*4
+        hidden_size=256,  # alterado para 256*4 = 1024
         num_layers=5,  # alterado para 5
     ):
         self.csv_path = csv_path
