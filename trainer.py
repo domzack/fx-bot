@@ -18,9 +18,18 @@ from class_OHLCVNormalizer import OHLCVNormalizer
 
 
 class LSTMModel(nn.Module):
-    def __init__(self, input_size, hidden_size=256, output_size=4, output_window=100, num_layers=2):
+    def __init__(
+        self,
+        input_size,
+        hidden_size=256,
+        output_size=4,
+        output_window=100,
+        num_layers=2,
+    ):
         super(LSTMModel, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True, num_layers=num_layers)
+        self.lstm = nn.LSTM(
+            input_size, hidden_size, batch_first=True, num_layers=num_layers
+        )
         self.fc = nn.Linear(hidden_size, output_size * output_window)
         self.output_size = output_size
         self.output_window = output_window
@@ -43,7 +52,7 @@ class LSTMTrainer:
         epochs=100,
         artifacts_folder="models",
         hidden_size=256,  # novo parâmetro
-        num_layers=2      # novo parâmetro
+        num_layers=2,  # novo parâmetro
     ):
         self.csv_path = csv_path
         self.device = device
@@ -102,6 +111,10 @@ class LSTMTrainer:
             bloco_ohlcv = bloco[self.features].values.tolist()
             # Normaliza usando OHLCVNormalizer
             bloco_normalizado = normalizer.normalize(bloco_ohlcv)
+            bloco_normalizado = np.array(bloco_normalizado)
+            if bloco_normalizado.ndim == 1 or bloco_normalizado.shape[1] != 4:
+                # Tenta reshape para (N, 4)
+                bloco_normalizado = bloco_normalizado.reshape(-1, 4)
             bloco_normalizado = np.round(bloco_normalizado, 4)  # 4 casas decimais
             # Converte para DataFrame para facilitar manipulação
             bloco_features = pd.DataFrame(
@@ -140,9 +153,11 @@ class LSTMTrainer:
                     output_size=4,
                     output_window=self.output_window,
                     hidden_size=self.hidden_size,
-                    num_layers=self.num_layers
+                    num_layers=self.num_layers,
                 ).to(self.device)
-                model.load_state_dict(torch.load(model_path, map_location=self.device))
+                model.load_state_dict(
+                    torch.load(model_path, map_location=self.device, weights_only=True)
+                )
                 log("Modelo carregado do treinamento anterior.")
             else:
                 model = LSTMModel(
@@ -150,7 +165,7 @@ class LSTMTrainer:
                     output_size=4,
                     output_window=self.output_window,
                     hidden_size=self.hidden_size,
-                    num_layers=self.num_layers
+                    num_layers=self.num_layers,
                 ).to(self.device)
                 log("Novo modelo criado.")
 
