@@ -30,14 +30,22 @@ class LSTMModel(nn.Module):
         self.lstm = nn.LSTM(
             input_size, hidden_size, batch_first=True, num_layers=num_layers
         )
-        self.fc = nn.Linear(hidden_size, output_size * output_window)
+        self.fc = nn.Linear(hidden_size, output_size)  # Corrigido para Teacher Forcing
         self.output_size = output_size
         self.output_window = output_window
 
     def forward(self, x):
-        _, (hn, _) = self.lstm(x)
-        out = self.fc(hn[-1])
-        return out.view(-1, self.output_window, self.output_size)
+        # x: [batch_size, seq_len, input_size]
+        out, _ = self.lstm(x)
+        # Pega todos os passos da sequência
+        out = self.fc(out)
+        return out  # [batch_size, seq_len, output_size]
+
+    def forward_step(self, x, hidden=None):
+        # x: [batch_size, 1, input_size]
+        out, hidden = self.lstm(x, hidden)
+        out = self.fc(out[:, -1, :])
+        return out.view(-1, 1, self.output_size), hidden
 
 
 class LSTMTrainer:
@@ -46,8 +54,8 @@ class LSTMTrainer:
         csv_path,
         device,
         features,
-        input_window=1000,
-        output_window=100,
+        input_window=100,  # janela de entrada agora é 100
+        output_window=50,
         batch_size=128,  # batch maior
         epochs=100,
         artifacts_folder="models",
@@ -87,12 +95,14 @@ class LSTMTrainer:
             log(f"Arquivo {csv_path} não encontrado.")
             return
 
+        normalizer = OHLCVNormalizer()
+
         # Carrega todo o histórico
-        df = pd.read_csv(csv_path)
+        df = pd.read_csv(csv_path, parse_dates=["time"])
         if "treinado" not in df.columns:
             df["treinado"] = 0
-
-        normalizer = OHLCVNormalizer()
+        normalized_df = normalizer.normalizeV2(df)
+        print(normalized_df.head())
 
         # Treina enquanto houver blocos não treinados
         while True:
@@ -117,7 +127,7 @@ class LSTMTrainer:
                 bloco_normalizado = bloco_normalizado.reshape(-1, 4)
             bloco_normalizado = np.round(bloco_normalizado, 2)  # 2 casas decimais
 
-            print(bloco_normalizado)
+            # print(bloco_normalizado)
 
             # Converte para DataFrame para facilitar manipulação
             bloco_features = pd.DataFrame(
@@ -175,6 +185,8 @@ class LSTMTrainer:
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
             criterion = nn.MSELoss()
 
+            n_threads = max(1, os.cpu_count() - 3)
+
             for epoch in range(self.epochs):
 
                 # Ajusta recursos conforme horário
@@ -182,20 +194,45 @@ class LSTMTrainer:
                 is_sunday = now.weekday() == 6
                 hora = now.hour + now.minute / 60.0
                 if not (is_sunday or hora >= 22 or hora < 7.5):
-                    torch.set_num_threads(1)
-                    log("Restringindo recursos.")
+                    if n_threads > 1:
+                        n_threads = 1
+                        torch.set_num_threads(n_threads)
+                        log("Restringindo recursos.")
                 else:
-                    n_threads = max(1, os.cpu_count() - 3)
-                    torch.set_num_threads(n_threads)
-                    log(f"Recursos liberados.")
+                    if n_threads == 1:
+                        n_threads = max(1, os.cpu_count() - 3)
+                        torch.set_num_threads(n_threads)
+                        log(f"Recursos liberados.")
 
                 inicio_epoca = time.time()
                 model.train()
                 total_loss = 0
                 for xb, yb in dataloader:
                     xb, yb = xb.to(self.device), yb.to(self.device)
-                    pred = model(xb)
-                    loss = criterion(pred, yb)
+                    batch_size = xb.size(0)
+                    input_seq = xb  # [batch_size, input_window, features]
+                    target_seq = yb  # [batch_size, output_window, features]
+                    # Inicializa o hidden state
+                    hidden = None
+                    decoder_input = input_seq[:, -1, :].unsqueeze(
+                        1
+                    )  # [batch_size, 1, features]
+                    # Inicializa outputs corretamente
+                    outputs = torch.zeros(
+                        batch_size,
+                        self.output_window,
+                        input_seq.size(2),
+                        device=self.device,
+                    )
+                    for t in range(self.output_window):
+                        out, hidden = model.forward_step(
+                            decoder_input, hidden
+                        )  # [batch_size, 1, features]
+                        outputs[:, t, :] = out[
+                            :, 0, :
+                        ]  # atribui diretamente na posição correta
+                        decoder_input = target_seq[:, t, :].unsqueeze(1)
+                    loss = criterion(outputs, target_seq)
                     optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()

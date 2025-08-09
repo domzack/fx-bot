@@ -1,4 +1,5 @@
 import csv
+import pandas as pd
 
 
 class OHLCVNormalizer:
@@ -25,6 +26,39 @@ class OHLCVNormalizer:
                     ]
                 )
                 self.raw_rows.append(row)
+
+    def normalizeV2(self, df):
+        """
+        Normaliza candles com base no candle anterior.
+        Retorna um DataFrame com spread, upper_wick, lower_wick e volume_pct.
+        """
+        normalized = []
+
+        for i in range(1, len(df)):
+            prev_open = df.loc[i - 1, "open"]
+            prev_volume = df.loc[i - 1, "volume"]
+
+            open_ = df.loc[i, "open"]
+            high = df.loc[i, "high"]
+            low = df.loc[i, "low"]
+            close = df.loc[i, "close"]
+            volume = df.loc[i, "volume"]
+
+            spread = (close - open_) / prev_open
+            upper_wick = (high - max(open_, close)) / prev_open
+            lower_wick = (min(open_, close) - low) / prev_open
+            volume_pct = volume / prev_volume if prev_volume != 0 else 0
+
+            normalized.append(
+                {
+                    "spread": spread,
+                    "upper_wick": upper_wick,
+                    "lower_wick": lower_wick,
+                    "volume_pct": volume_pct,
+                }
+            )
+
+        return pd.DataFrame(normalized)
 
     def normalize(self, OHLCV=None):
         if OHLCV is None:
