@@ -56,11 +56,11 @@ class LSTMTrainer:
         features,
         input_window=100,  # janela de entrada agora é 100
         output_window=50,
-        batch_size=128,  # batch maior
-        epochs=100,
+        batch_size=64,  # batch maior
+        epochs=10,
         artifacts_folder="models",
-        hidden_size=256,  # novo parâmetro
-        num_layers=2,  # novo parâmetro
+        hidden_size=1024,  # alterado para 256*4
+        num_layers=5,  # alterado para 5
     ):
         self.csv_path = csv_path
         self.device = device
@@ -263,6 +263,9 @@ class LSTMTrainer:
                 # Validação
                 model.eval()
                 val_loss = 0
+                val_mae = 0
+                val_rmse = 0
+                n_val_batches = 0
                 with torch.no_grad():
                     for xb, yb in val_loader:
                         xb, yb = xb.to(self.device), yb.to(self.device)
@@ -283,12 +286,24 @@ class LSTMTrainer:
                             decoder_input = target_seq[:, t, :].unsqueeze(1)
                         loss = criterion(outputs, target_seq)
                         val_loss += loss.item()
+                        # Cálculo das métricas
+                        mae = torch.mean(torch.abs(outputs - target_seq)).item()
+                        rmse = torch.sqrt(
+                            torch.mean((outputs - target_seq) ** 2)
+                        ).item()
+                        val_mae += mae
+                        val_rmse += rmse
+                        n_val_batches += 1
+                # Média das métricas
+                if n_val_batches > 0:
+                    val_mae /= n_val_batches
+                    val_rmse /= n_val_batches
                 fim_epoca = time.time()
                 tempo_epoca = fim_epoca - inicio_epoca
                 epocas_restantes = self.epochs - (epoch + 1)
                 tempo_estimado = tempo_epoca * epocas_restantes
                 log(
-                    f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Val Loss: {val_loss:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
+                    f"Epoch {epoch+1}/{self.epochs} - Loss: {total_loss:.4f} - Val Loss: {val_loss:.4f} - Val MAE: {val_mae:.4f} - Val RMSE: {val_rmse:.4f} - Tempo: {tempo_epoca:.2f}s - Estimativa restante: {tempo_estimado/60:.2f} min"
                 )
 
             torch.save(model.state_dict(), model_path)
