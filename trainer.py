@@ -215,6 +215,6 @@ class LSTMTrainer:
             log(f"Bloco de {len(idxs)} candles marcado e salvo em {csv_path}")
 
             # Executa git pop após o sucesso do treinamento
-            os.system(f"git pop 'bloco_{idxs[0]}_{idxs[-1]} train success'")
+            # os.system(f"git pop 'bloco_{idxs[0]}_{idxs[-1]} train success'")
 
         log("Treinamento de todos os blocos concluído.")
