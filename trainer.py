@@ -115,7 +115,10 @@ class LSTMTrainer:
             if bloco_normalizado.ndim == 1 or bloco_normalizado.shape[1] != 4:
                 # Tenta reshape para (N, 4)
                 bloco_normalizado = bloco_normalizado.reshape(-1, 4)
-            bloco_normalizado = np.round(bloco_normalizado, 4)  # 4 casas decimais
+            bloco_normalizado = np.round(bloco_normalizado, 2)  # 2 casas decimais
+
+            print(bloco_normalizado)
+
             # Converte para DataFrame para facilitar manipulação
             bloco_features = pd.DataFrame(
                 bloco_normalizado, columns=["var", "max", "min", "vol"]
@@ -182,7 +185,7 @@ class LSTMTrainer:
                     torch.set_num_threads(1)
                     log("Restringindo recursos.")
                 else:
-                    n_threads = max(1, os.cpu_count() - 1)
+                    n_threads = max(1, os.cpu_count() - 3)
                     torch.set_num_threads(n_threads)
                     log(f"Recursos liberados.")
 
